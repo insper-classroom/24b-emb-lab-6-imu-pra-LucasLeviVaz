@@ -25,14 +25,14 @@ const int I2C_SCL_GPIO = 5;
 #define UART_TX_PIN 0
 #define UART_RX_PIN 1
 
-QueueHandle_t xQueueAdc;
-QueueHandle_t yQueueAdc;
+QueueHandle_t xQueueI2C;
+QueueHandle_t yQueueI2C;
 
 // Estrutura para armazenar os dados do mouse
-typedef struct adc {
+typedef struct I2C {
     uint8_t axis;  // 0 para eixo X, 1 para eixo Y
     int16_t val;   // Valor da coordenada (posição)
-} adc_t;
+} I2C_t;
 
 // Inicializa a UART
 void uart_init_custom() {
@@ -45,10 +45,10 @@ void uart_init_custom() {
 
 // Tarefa da UART para enviar os dados do mouse
 void uart_task(void *p) {
-       adc_t data;
+       I2C_t data;
 
     while (1) {
-        if (xQueueReceive(xQueueAdc, &data, portMAX_DELAY)) {
+        if (xQueueReceive(xQueueI2C, &data, portMAX_DELAY)) {
             uint8_t axis = data.axis;
             uint8_t val_msb = (data.val >> 8) & 0xFF;
             uint8_t val_lsb = data.val & 0xFF;
@@ -126,12 +126,17 @@ void mpu6050_fundido_task(void *p) {
         FusionAhrsUpdateNoMagnetometer(&ahrs, gyroscope, accelerometer, 0.05f);
         const FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
 
-        adc_t data;
+        int yaw = -zona_morta(euler.angle.yaw);
+        int roll = -zona_morta(euler.angle.roll);
 
-        // Exibir os valores de Roll, Pitch e Yaw
-        // printf("Roll: %0.1f, Pitch: %0.1f, Yaw: %0.1f\n", euler.angle.roll, euler.angle.pitch, euler.angle.yaw);
+        I2C_t data;
+        data.axis = 0;
+        data.val = yaw;
+        xQueueSend(xQueueI2C, &data, portMAX_DELAY);
 
-        // Detectar movimento rápido e armazenar a aceleração anterior
+        data.axis = 1;
+        data.val = roll;
+        xQueueSend(xQueueI2C, &data, portMAX_DELAY);
 
         if (acceleration[1] > CLICK) {
             uint8_t axis = data.axis;
@@ -144,18 +149,6 @@ void mpu6050_fundido_task(void *p) {
             uart_putc(UART_ID, 0xFF);
         }
 
-        int yaw = -zona_morta(euler.angle.yaw);
-        int roll = -zona_morta(euler.angle.roll);
-
-        data.axis = 0;
-        data.val = yaw;
-        xQueueSend(xQueueAdc, &data, portMAX_DELAY);
-
-        data.axis = 1;
-        data.val = roll;
-        xQueueSend(xQueueAdc, &data, portMAX_DELAY);
-        
-
         // Aguardar próximo ciclo
         vTaskDelay(pdMS_TO_TICKS(50));  // Atraso de 50ms para manter o SAMPLE_PERIOD
     }
@@ -165,7 +158,7 @@ int main() {
     stdio_init_all();
     uart_init_custom();
 
-    xQueueAdc = xQueueCreate(32, sizeof(adc_t));
+    xQueueI2C = xQueueCreate(32, sizeof(I2C_t));
 
     xTaskCreate(mpu6050_fundido_task, "mpu6050_Task 2", 8192, NULL, 1, NULL);
     xTaskCreate(uart_task, "uart_task", 4096, NULL, 1, NULL);
