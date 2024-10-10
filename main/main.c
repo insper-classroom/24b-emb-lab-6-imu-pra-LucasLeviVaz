@@ -111,7 +111,6 @@ void mpu6050_fundido_task(void *p) {
     mpu6050_reset();  // Resetar o sensor MPU6050
 
     int16_t acceleration[3], gyro[3], temp;
-    int16_t prev_acceleration_x = 0;
 
     FusionAhrs ahrs;
     FusionAhrsInitialise(&ahrs);
